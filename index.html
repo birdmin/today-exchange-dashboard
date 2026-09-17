@@ -20,24 +20,57 @@
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
       border: 1px solid #e9ecef;
     }
-    h1 { font-size: 1.5rem; margin-top: 0; color: #111; }
+    h1 { font-size: 1.4rem; margin-top: 0; color: #111; }
+    
+    /* 기본 환율 요약 박스 */
     .rate-box {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin: 20px 0;
+      gap: 12px;
+      margin: 16px 0;
     }
     .rate-item {
       background: #f1f3f5;
-      padding: 16px;
+      padding: 14px;
       border-radius: 8px;
     }
-    .rate-item .label { font-size: 0.85rem; color: #666; margin-bottom: 4px; }
-    .rate-item .value { font-size: 1.4rem; font-weight: bold; color: #0b7285; }
+    .rate-item .label { font-size: 0.8rem; color: #666; margin-bottom: 4px; }
+    .rate-item .value { font-size: 1.25rem; font-weight: bold; color: #0b7285; }
+
+    /* 사용자 직접 계산기 영역 */
+    .calc-box {
+      background: #eef6f7;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #c5e1e5;
+    }
+    .calc-title { font-weight: bold; font-size: 0.95rem; margin-bottom: 10px; color: #0c8599; }
+    .calc-inputs {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    select, input {
+      padding: 8px 12px;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    input { flex: 1; width: 100%; }
+    .calc-result {
+      font-weight: bold;
+      font-size: 1.1rem;
+      color: #15aabf;
+      margin-top: 8px;
+    }
+
+    /* 메타데이터 영역 */
     .meta-list {
       border-top: 1px solid #eee;
       padding-top: 16px;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       color: #495057;
       line-height: 1.6;
     }
@@ -50,17 +83,32 @@
   <div class="card">
     <h1>오늘의 원/달러 환율 정보판</h1>
 
+    <!-- 1. 기본 조회 화면 (1달러당 / 1,000원당) -->
     <div class="rate-box">
       <div class="rate-item">
-        <div class="label">미국 기준 (1달러당)</div>
-        <div class="value" id="usd-to-krw">- 원</div>
+        <div class="label">미국 기준 (1 달러)</div>
+        <div class="value" id="usd1-to-krw">- 원</div>
       </div>
       <div class="rate-item">
-        <div class="label">한국 기준 (10원당)</div>
-        <div class="value" id="krw10-to-usd">- 달러</div>
+        <div class="label">한국 기준 (1,000 원)</div>
+        <div class="value" id="krw1000-to-usd">- 달러</div>
       </div>
     </div>
 
+    <!-- 2. 사용자 직접 입력 계산기 -->
+    <div class="calc-box">
+      <div class="calc-title">💡 직접 환율 계산하기</div>
+      <div class="calc-inputs">
+        <select id="currency-type" onchange="calculate()">
+          <option value="USD">달러 ($)</option>
+          <option value="KRW">원 (₩)</option>
+        </select>
+        <input type="number" id="user-amount" value="1" min="0" placeholder="금액 입력" oninput="calculate()">
+      </div>
+      <div class="calc-result" id="calc-output">계산 중...</div>
+    </div>
+
+    <!-- 3. 과제 필수 메타 정보 -->
     <div class="meta-list">
       <div class="meta-item">
         <span class="meta-label">표시 단위</span>
@@ -86,7 +134,8 @@
   </div>
 
   <script>
-    // KST(Asia/Seoul) 포맷터
+    let currentRate = 0; // 1 USD당 KRW 환율 저장용
+
     function formatKST(date) {
       return new Intl.DateTimeFormat('ko-KR', {
         timeZone: 'Asia/Seoul',
@@ -100,6 +149,23 @@
       }).format(date) + ' KST';
     }
 
+    // 사용자 입력 계산 함수
+    function calculate() {
+      if (!currentRate) return;
+
+      const type = document.getElementById('currency-type').value;
+      const amount = parseFloat(document.getElementById('user-amount').value) || 0;
+      const output = document.getElementById('calc-output');
+
+      if (type === 'USD') {
+        const krwVal = amount * currentRate;
+        output.textContent = `= ${krwVal.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 원`;
+      } else {
+        const usdVal = amount / currentRate;
+        output.textContent = `= ${usdVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 달러`;
+      }
+    }
+
     async function fetchExchangeRate() {
       const fetchTime = new Date();
       
@@ -108,24 +174,28 @@
         const rawData = await response.json();
 
         if (rawData.result === 'success') {
-          // 1. 데이터 추출 및 계산 (저장값)
-          const usdToKrw = rawData.rates.KRW;
-          const krw10ToUsd = 10 / usdToKrw;
+          currentRate = rawData.rates.KRW;
+
+          // 1. 기본 화면 계산 (1달러 당 / 1,000원 당)
+          const usd1ToKrw = currentRate;
+          const krw1000ToUsd = 1000 / currentRate;
           const sourceTime = new Date(rawData.time_last_update_unix * 1000);
 
-          // 2. 화면값 표시 (UI Render)
-          document.getElementById('usd-to-krw').textContent = `${usdToKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
-          document.getElementById('krw10-to-usd').textContent = `${krw10ToUsd.toFixed(4)} 달러`;
+          document.getElementById('usd1-to-krw').textContent = `${usd1ToKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
+          document.getElementById('krw1000-to-usd').textContent = `${krw1000ToUsd.toFixed(4)} 달러`;
           
           document.getElementById('source-time').textContent = formatKST(sourceTime);
           document.getElementById('fetch-time').textContent = formatKST(fetchTime);
+
+          // 2. 입력 계산기 초기화
+          calculate();
         }
       } catch (error) {
-        console.error('환율 로드 실패:', error);
+        console.error('환율 데이터 로드 실패:', error);
       }
     }
 
-    // 초기 실행
+    // 페이지 진입 시 최초 실행
     fetchExchangeRate();
   </script>
 </body>
