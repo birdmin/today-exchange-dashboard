@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오늘의 진짜 정보판 — 원/달러 환율</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+      color: #333;
+    }
+    .card {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e9ecef;
+    }
+    h1 { font-size: 1.5rem; margin-top: 0; color: #111; }
+    .rate-box {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .rate-item {
+      background: #f1f3f5;
+      padding: 16px;
+      border-radius: 8px;
+    }
+    .rate-item .label { font-size: 0.85rem; color: #666; margin-bottom: 4px; }
+    .rate-item .value { font-size: 1.4rem; font-weight: bold; color: #0b7285; }
+    .meta-list {
+      border-top: 1px solid #eee;
+      padding-top: 16px;
+      font-size: 0.9rem;
+      color: #495057;
+      line-height: 1.6;
+    }
+    .meta-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .meta-label { color: #868e96; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>오늘의 원/달러 환율 정보판</h1>
+
+    <div class="rate-box">
+      <div class="rate-item">
+        <div class="label">미국 기준 (1달러당)</div>
+        <div class="value" id="usd-to-krw">- 원</div>
+      </div>
+      <div class="rate-item">
+        <div class="label">한국 기준 (10원당)</div>
+        <div class="value" id="krw10-to-usd">- 달러</div>
+      </div>
+    </div>
+
+    <div class="meta-list">
+      <div class="meta-item">
+        <span class="meta-label">표시 단위</span>
+        <span id="unit">원 (KRW) / 달러 (USD)</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">데이터 출처</span>
+        <span id="source">ExchangeRate-API (open.er-api.com)</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">출처 시각 (Data Update)</span>
+        <span id="source-time">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">조회 시각 (Fetch Time)</span>
+        <span id="fetch-time">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">기준 시간대</span>
+        <span id="timezone">KST (Asia/Seoul, UTC+9)</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // KST(Asia/Seoul) 포맷터
+    function formatKST(date) {
+      return new Intl.DateTimeFormat('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date) + ' KST';
+    }
+
+    async function fetchExchangeRate() {
+      const fetchTime = new Date();
+      
+      try {
+        const response = await fetch('https://open.er-api.com/v6/latest/USD');
+        const rawData = await response.json();
+
+        if (rawData.result === 'success') {
+          // 1. 데이터 추출 및 계산 (저장값)
+          const usdToKrw = rawData.rates.KRW;
+          const krw10ToUsd = 10 / usdToKrw;
+          const sourceTime = new Date(rawData.time_last_update_unix * 1000);
+
+          // 2. 화면값 표시 (UI Render)
+          document.getElementById('usd-to-krw').textContent = `${usdToKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
+          document.getElementById('krw10-to-usd').textContent = `${krw10ToUsd.toFixed(4)} 달러`;
+          
+          document.getElementById('source-time').textContent = formatKST(sourceTime);
+          document.getElementById('fetch-time').textContent = formatKST(fetchTime);
+        }
+      } catch (error) {
+        console.error('환율 로드 실패:', error);
+      }
+    }
+
+    // 초기 실행
+    fetchExchangeRate();
+  </script>
+</body>
+</html>
