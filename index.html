@@ -7,7 +7,7 @@
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      max-width: 650px;
+      max-width: 680px;
       margin: 30px auto;
       padding: 20px;
       background-color: #f8f9fa;
@@ -33,7 +33,6 @@
     }
     .status-fresh { background: #e6fcf5; color: #0ca678; }
     .status-stale { background: #fff9db; color: #f59f00; }
-    .status-error { background: #ffe3e3; color: #e03131; }
 
     /* 에러 알림 상자 */
     .error-box {
@@ -62,7 +61,7 @@
     .rate-item .label { font-size: 0.8rem; color: #666; margin-bottom: 4px; }
     .rate-item .value { font-size: 1.25rem; font-weight: bold; color: #0b7285; }
 
-    /* 사용자 직접 계산기 */
+    /* 직접 계산기 */
     .calc-box {
       background: #eef6f7;
       padding: 16px;
@@ -83,9 +82,24 @@
     button:hover { background: #1c7ed6; }
     .calc-result { font-weight: bold; font-size: 1.1rem; color: #15aabf; margin-top: 8px; }
 
+    /* 카드 5: 일별 기록 및 어제 대비 변화 테이블 */
+    .history-section {
+      margin-top: 24px;
+      border-top: 1px solid #eee;
+      padding-top: 16px;
+    }
+    .section-title { font-size: 1rem; font-weight: bold; margin-bottom: 10px; color: #212529; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 8px; }
+    th, td { border: 1px solid #dee2e6; padding: 8px 10px; text-align: center; }
+    th { background-color: #f8f9fa; color: #495057; font-weight: 600; }
+    .up { color: #e03131; font-weight: bold; }   /* 상승 (빨강) */
+    .down { color: #1971c2; font-weight: bold; } /* 하락 (파랑) */
+    .same { color: #868e96; }                   /* 보합 */
+
     /* 메타데이터 */
     .meta-list {
       border-top: 1px solid #eee;
+      margin-top: 20px;
       padding-top: 16px;
       font-size: 0.85rem;
       color: #495057;
@@ -94,7 +108,7 @@
     .meta-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
     .meta-label { color: #868e96; }
 
-    /* 카드 3 합성 시험 컨트롤러 UI */
+    /* 카드 3/4 테스트 컨트롤러 */
     .fixture-tester {
       margin-top: 24px;
       padding-top: 16px;
@@ -116,14 +130,14 @@
     </div>
     <h1>오늘의 원/달러 환율 정보판</h1>
 
-    <!-- 에러 및 다음 행동 안내 영역 -->
+    <!-- 에러 알림 영역 -->
     <div id="error-box" class="error-box">
       <div id="error-title" class="error-title">오류 메시지</div>
       <div id="error-action" class="error-action">다음 행동 안내</div>
       <button onclick="recoverD2()" style="margin-top: 8px; font-size: 0.8rem; padding: 4px 8px;">🔄 다시 시도</button>
     </div>
 
-    <!-- 기본 환율 표시 -->
+    <!-- 환율 요약 -->
     <div class="rate-box">
       <div class="rate-item">
         <div class="label">미국 기준 (1 달러)</div>
@@ -148,6 +162,24 @@
       <div class="calc-result" id="calc-output">계산 중...</div>
     </div>
 
+    <!-- 카드 5: 일별 저장 기록 및 어제 대비 변화 표 -->
+    <div class="history-section">
+      <div class="section-title">📊 일별 환율 기록 및 어제 대비 변화 (KST)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>날짜 (KST)</th>
+            <th>환율 (KRW)</th>
+            <th>어제 대비 변화</th>
+            <th>변동률 (%)</th>
+          </tr>
+        </thead>
+        <tbody id="history-table-body">
+          <tr><td colspan="4">기록을 불러오는 중입니다...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- 메타데이터 -->
     <div class="meta-list">
       <div class="meta-item"><span class="meta-label">표시 단위</span><span id="unit">원 (KRW) / 달러 (USD)</span></div>
@@ -157,28 +189,29 @@
       <div class="meta-item"><span class="meta-label">기준 시간대</span><span id="timezone">KST (Asia/Seoul, UTC+9)</span></div>
     </div>
 
-    <!-- 카드 3 합성 Fixture 테스트 버튼 구역 -->
+    <!-- 합성 시뮬레이션 버튼 컨트롤러 -->
     <div class="fixture-tester">
-      <div class="fixture-title">🧪 [카드 3] 합성 실패 재생 및 복구 테스트</div>
+      <div class="fixture-title">🧪 합성 장애 및 날짜 시뮬레이션</div>
       <div class="btn-group">
         <button class="btn-fixture" onclick="simulateFailure('timeout')">1. TIMEOUT</button>
         <button class="btn-fixture" onclick="simulateFailure('auth_401')">2. AUTH-401</button>
         <button class="btn-fixture" onclick="simulateFailure('rate_429')">3. RATE-429</button>
         <button class="btn-fixture" onclick="simulateFailure('offline')">4. OFFLINE</button>
         <button class="btn-fixture" onclick="simulateFailure('schema_break')">5. SCHEMA-BREAK</button>
-        <button class="btn-fixture btn-recover" onclick="recoverD2()">6. RECOVER-D2 (복구)</button>
+        <button class="btn-fixture btn-recover" onclick="recoverD2()">6. RECOVER-D2 (2일차 복구)</button>
+        <button class="btn-fixture" onclick="injectCard5MockData()" style="background:#e7f5ff; border-color:#74c0fc; color:#1864ab;">7. 카드 5 이틀 기록 시험</button>
       </div>
     </div>
   </div>
 
   <script>
-    // 상태 관리 (Last Known Good 패턴)
+    // 상태 관리 (Last Known Good + Daily History)
     let state = {
-      status: 'fresh', // 'fresh' | 'stale'
+      status: 'fresh',
       error_code: 'none',
       last_known_rate: null,
       last_known_source_time: null,
-      daily_records: [] // 일별 저장 기록
+      daily_records: [] // { record_date: 'YYYY-MM-DD', normalized_value: 1340.50 }
     };
 
     function formatKST(date) {
@@ -201,11 +234,61 @@
       }
     }
 
+    // 카드 5: 어제 대비 변화 계산 및 테이블 렌더링
+    function renderHistoryTable() {
+      const tbody = document.getElementById('history-table-body');
+      tbody.innerHTML = '';
+
+      if (state.daily_records.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4">저장된 일별 기록이 없습니다.</td></tr>';
+        return;
+      }
+
+      // 날짜순 오름차순 정렬
+      const sortedRecords = [...state.daily_records].sort((a, b) => a.record_date.localeCompare(b.record_date));
+
+      sortedRecords.forEach((record, index) => {
+        const tr = document.createElement('tr');
+        
+        let diffText = '-';
+        let rateText = '-';
+        let diffClass = 'same';
+
+        if (index > 0) {
+          const prevValue = sortedRecords[index - 1].normalized_value;
+          const currValue = record.normalized_value;
+          const diff = currValue - prevValue;
+          const diffRate = (diff / prevValue) * 100;
+
+          if (diff > 0) {
+            diffText = `▲ +${diff.toFixed(2)} 원`;
+            rateText = `+${diffRate.toFixed(2)}%`;
+            diffClass = 'up';
+          } else if (diff < 0) {
+            diffText = `▼ ${diff.toFixed(2)} 원`;
+            rateText = `${diffRate.toFixed(2)}%`;
+            diffClass = 'down';
+          } else {
+            diffText = '0.00 원';
+            rateText = '0.00%';
+            diffClass = 'same';
+          }
+        }
+
+        tr.innerHTML = `
+          <td>${record.record_date}</td>
+          <td>${record.normalized_value.toLocaleString('ko-KR', { minimumFractionDigits: 2 })} 원</td>
+          <td class="${diffClass}">${diffText}</td>
+          <td class="${diffClass}">${rateText}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
     function renderUI(fetchTime) {
       const badge = document.getElementById('status-badge');
       const errorBox = document.getElementById('error-box');
 
-      // 상태 표시 변경
       if (state.status === 'stale') {
         badge.className = 'status-badge status-stale';
         badge.textContent = `⚠️ 오래된 값 보존 중 (stale / ${state.error_code})`;
@@ -216,7 +299,6 @@
         errorBox.style.display = 'none';
       }
 
-      // 마지막 정상값이 있는 경우 보존하여 출력
       if (state.last_known_rate) {
         document.getElementById('usd1-to-krw').textContent = `${state.last_known_rate.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
         document.getElementById('krw1000-to-usd').textContent = `${(1000 / state.last_known_rate).toFixed(4)} 달러`;
@@ -225,9 +307,9 @@
       }
 
       document.getElementById('fetch-time').textContent = formatKST(fetchTime || new Date());
+      renderHistoryTable();
     }
 
-    // 실제 Live API 호출
     async function fetchExchangeRate() {
       const fetchTime = new Date();
       try {
@@ -240,7 +322,7 @@
           state.last_known_rate = rawData.rates.KRW;
           state.last_known_source_time = new Date(rawData.time_last_update_unix * 1000);
           
-          // 일별 기록 저장 (Asia/Seoul 기준 날짜 중복 방지 원자적 갱신)
+          // KST 기준 원자적 일별 중복 방지 저장
           const todayKST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
           const existingIdx = state.daily_records.findIndex(r => r.record_date === todayKST);
           if (existingIdx >= 0) {
@@ -256,7 +338,6 @@
       }
     }
 
-    // 카드 3: 외부 실패 5종 합성 시뮬레이션
     function simulateFailure(errorCode) {
       state.status = 'stale';
       state.error_code = errorCode;
@@ -276,26 +357,39 @@
       renderUI(new Date());
     }
 
-    // 카드 3: T04-RECOVER-D2 복구 재생
     function recoverD2() {
       state.status = 'fresh';
       state.error_code = 'none';
-      state.last_known_rate = 120; // T04-RECOVER-D2 합성값
-      state.last_known_source_time = new Date("2026-08-25T00:00:00+09:00");
+      state.last_known_rate = 1345.50;
+      state.last_known_source_time = new Date("2026-09-18T13:00:00+09:00");
 
-      // 합성 다음 날짜 행 추가 (2026-08-25)
-      const recoverDate = "2026-08-25";
+      const recoverDate = "2026-09-18";
       const existingIdx = state.daily_records.findIndex(r => r.record_date === recoverDate);
       if (existingIdx >= 0) {
-        state.daily_records[existingIdx].normalized_value = 120;
+        state.daily_records[existingIdx].normalized_value = 1345.50;
       } else {
-        state.daily_records.push({ record_date: recoverDate, normalized_value: 120 });
+        state.daily_records.push({ record_date: recoverDate, normalized_value: 1345.50 });
       }
 
       renderUI(new Date());
     }
 
-    // 초기 실행
+    // 카드 5: 2026-09-17 및 2026-09-18 이틀 기록 시뮬레이션 버튼
+    function injectCard5MockData() {
+      state.status = 'fresh';
+      state.error_code = 'none';
+      state.last_known_rate = 1345.50;
+      state.last_known_source_time = new Date("2026-09-18T13:00:00+09:00");
+
+      state.daily_records = [
+        { record_date: "2026-09-17", normalized_value: 1340.50 },
+        { record_date: "2026-09-18", normalized_value: 1345.50 }
+      ];
+
+      renderUI(new Date());
+    }
+
+    // 초기화 및 실시간 수집 실행
     fetchExchangeRate();
   </script>
 </body>
