@@ -7,8 +7,8 @@
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      max-width: 600px;
-      margin: 40px auto;
+      max-width: 650px;
+      margin: 30px auto;
       padding: 20px;
       background-color: #f8f9fa;
       color: #333;
@@ -21,7 +21,32 @@
       border: 1px solid #e9ecef;
     }
     h1 { font-size: 1.4rem; margin-top: 0; color: #111; }
-    
+
+    /* 상태 뱃지 */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+    .status-fresh { background: #e6fcf5; color: #0ca678; }
+    .status-stale { background: #fff9db; color: #f59f00; }
+    .status-error { background: #ffe3e3; color: #e03131; }
+
+    /* 에러 알림 상자 */
+    .error-box {
+      background: #fff5f5;
+      border: 1px solid #ffc9c9;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .error-title { font-weight: bold; color: #c92a2a; margin-bottom: 4px; font-size: 0.9rem; }
+    .error-action { font-size: 0.85rem; color: #e03131; }
+
     /* 기본 환율 요약 박스 */
     .rate-box {
       display: grid;
@@ -37,7 +62,7 @@
     .rate-item .label { font-size: 0.8rem; color: #666; margin-bottom: 4px; }
     .rate-item .value { font-size: 1.25rem; font-weight: bold; color: #0b7285; }
 
-    /* 사용자 직접 계산기 영역 */
+    /* 사용자 직접 계산기 */
     .calc-box {
       background: #eef6f7;
       padding: 16px;
@@ -46,27 +71,19 @@
       border: 1px solid #c5e1e5;
     }
     .calc-title { font-weight: bold; font-size: 0.95rem; margin-bottom: 10px; color: #0c8599; }
-    .calc-inputs {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    select, input {
+    .calc-inputs { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    select, input, button {
       padding: 8px 12px;
       border: 1px solid #ced4da;
       border-radius: 6px;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
     }
-    input { flex: 1; width: 100%; }
-    .calc-result {
-      font-weight: bold;
-      font-size: 1.1rem;
-      color: #15aabf;
-      margin-top: 8px;
-    }
+    input { flex: 1; }
+    button { background: #228be6; color: white; border: none; cursor: pointer; font-weight: bold; }
+    button:hover { background: #1c7ed6; }
+    .calc-result { font-weight: bold; font-size: 1.1rem; color: #15aabf; margin-top: 8px; }
 
-    /* 메타데이터 영역 */
+    /* 메타데이터 */
     .meta-list {
       border-top: 1px solid #eee;
       padding-top: 16px;
@@ -76,14 +93,37 @@
     }
     .meta-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
     .meta-label { color: #868e96; }
+
+    /* 카드 3 합성 시험 컨트롤러 UI */
+    .fixture-tester {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 2px dashed #dee2e6;
+    }
+    .fixture-title { font-size: 0.9rem; font-weight: bold; margin-bottom: 8px; color: #495057; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .btn-fixture { background: #f1f3f5; color: #495057; border: 1px solid #ced4da; font-size: 0.78rem; padding: 6px 10px; }
+    .btn-fixture:hover { background: #e9ecef; }
+    .btn-recover { background: #40c057; color: white; border: none; }
+    .btn-recover:hover { background: #37b24d; }
   </style>
 </head>
 <body>
 
   <div class="card">
+    <div>
+      <span id="status-badge" class="status-badge status-fresh">정상 (fresh)</span>
+    </div>
     <h1>오늘의 원/달러 환율 정보판</h1>
 
-    <!-- 1. 기본 조회 화면 (1달러당 / 1,000원당) -->
+    <!-- 에러 및 다음 행동 안내 영역 -->
+    <div id="error-box" class="error-box">
+      <div id="error-title" class="error-title">오류 메시지</div>
+      <div id="error-action" class="error-action">다음 행동 안내</div>
+      <button onclick="recoverD2()" style="margin-top: 8px; font-size: 0.8rem; padding: 4px 8px;">🔄 다시 시도</button>
+    </div>
+
+    <!-- 기본 환율 표시 -->
     <div class="rate-box">
       <div class="rate-item">
         <div class="label">미국 기준 (1 달러)</div>
@@ -95,7 +135,7 @@
       </div>
     </div>
 
-    <!-- 2. 사용자 직접 입력 계산기 -->
+    <!-- 직접 계산기 -->
     <div class="calc-box">
       <div class="calc-title">💡 직접 환율 계산하기</div>
       <div class="calc-inputs">
@@ -108,94 +148,154 @@
       <div class="calc-result" id="calc-output">계산 중...</div>
     </div>
 
-    <!-- 3. 과제 필수 메타 정보 -->
+    <!-- 메타데이터 -->
     <div class="meta-list">
-      <div class="meta-item">
-        <span class="meta-label">표시 단위</span>
-        <span id="unit">원 (KRW) / 달러 (USD)</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">데이터 출처</span>
-        <span id="source">ExchangeRate-API (open.er-api.com)</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">출처 시각 (Data Update)</span>
-        <span id="source-time">-</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">조회 시각 (Fetch Time)</span>
-        <span id="fetch-time">-</span>
-      </div>
-      <div class="meta-item">
-        <span class="meta-label">기준 시간대</span>
-        <span id="timezone">KST (Asia/Seoul, UTC+9)</span>
+      <div class="meta-item"><span class="meta-label">표시 단위</span><span id="unit">원 (KRW) / 달러 (USD)</span></div>
+      <div class="meta-item"><span class="meta-label">데이터 출처</span><span id="source">ExchangeRate-API (open.er-api.com)</span></div>
+      <div class="meta-item"><span class="meta-label">출처 시각 (Data Update)</span><span id="source-time">-</span></div>
+      <div class="meta-item"><span class="meta-label">조회 시각 (Fetch Time)</span><span id="fetch-time">-</span></div>
+      <div class="meta-item"><span class="meta-label">기준 시간대</span><span id="timezone">KST (Asia/Seoul, UTC+9)</span></div>
+    </div>
+
+    <!-- 카드 3 합성 Fixture 테스트 버튼 구역 -->
+    <div class="fixture-tester">
+      <div class="fixture-title">🧪 [카드 3] 합성 실패 재생 및 복구 테스트</div>
+      <div class="btn-group">
+        <button class="btn-fixture" onclick="simulateFailure('timeout')">1. TIMEOUT</button>
+        <button class="btn-fixture" onclick="simulateFailure('auth_401')">2. AUTH-401</button>
+        <button class="btn-fixture" onclick="simulateFailure('rate_429')">3. RATE-429</button>
+        <button class="btn-fixture" onclick="simulateFailure('offline')">4. OFFLINE</button>
+        <button class="btn-fixture" onclick="simulateFailure('schema_break')">5. SCHEMA-BREAK</button>
+        <button class="btn-fixture btn-recover" onclick="recoverD2()">6. RECOVER-D2 (복구)</button>
       </div>
     </div>
   </div>
 
   <script>
-    let currentRate = 0; // 1 USD당 KRW 환율 저장용
+    // 상태 관리 (Last Known Good 패턴)
+    let state = {
+      status: 'fresh', // 'fresh' | 'stale'
+      error_code: 'none',
+      last_known_rate: null,
+      last_known_source_time: null,
+      daily_records: [] // 일별 저장 기록
+    };
 
     function formatKST(date) {
       return new Intl.DateTimeFormat('ko-KR', {
-        timeZone: 'Asia/Seoul',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
+        timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       }).format(date) + ' KST';
     }
 
-    // 사용자 입력 계산 함수
     function calculate() {
-      if (!currentRate) return;
-
+      if (!state.last_known_rate) return;
       const type = document.getElementById('currency-type').value;
       const amount = parseFloat(document.getElementById('user-amount').value) || 0;
       const output = document.getElementById('calc-output');
 
       if (type === 'USD') {
-        const krwVal = amount * currentRate;
-        output.textContent = `= ${krwVal.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 원`;
+        output.textContent = `= ${(amount * state.last_known_rate).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 원`;
       } else {
-        const usdVal = amount / currentRate;
-        output.textContent = `= ${usdVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 달러`;
+        output.textContent = `= ${(amount / state.last_known_rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 달러`;
       }
     }
 
+    function renderUI(fetchTime) {
+      const badge = document.getElementById('status-badge');
+      const errorBox = document.getElementById('error-box');
+
+      // 상태 표시 변경
+      if (state.status === 'stale') {
+        badge.className = 'status-badge status-stale';
+        badge.textContent = `⚠️ 오래된 값 보존 중 (stale / ${state.error_code})`;
+        errorBox.style.display = 'block';
+      } else {
+        badge.className = 'status-badge status-fresh';
+        badge.textContent = '정상 (fresh / none)';
+        errorBox.style.display = 'none';
+      }
+
+      // 마지막 정상값이 있는 경우 보존하여 출력
+      if (state.last_known_rate) {
+        document.getElementById('usd1-to-krw').textContent = `${state.last_known_rate.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
+        document.getElementById('krw1000-to-usd').textContent = `${(1000 / state.last_known_rate).toFixed(4)} 달러`;
+        document.getElementById('source-time').textContent = formatKST(state.last_known_source_time);
+        calculate();
+      }
+
+      document.getElementById('fetch-time').textContent = formatKST(fetchTime || new Date());
+    }
+
+    // 실제 Live API 호출
     async function fetchExchangeRate() {
       const fetchTime = new Date();
-      
       try {
         const response = await fetch('https://open.er-api.com/v6/latest/USD');
         const rawData = await response.json();
 
         if (rawData.result === 'success') {
-          currentRate = rawData.rates.KRW;
-
-          // 1. 기본 화면 계산 (1달러 당 / 1,000원 당)
-          const usd1ToKrw = currentRate;
-          const krw1000ToUsd = 1000 / currentRate;
-          const sourceTime = new Date(rawData.time_last_update_unix * 1000);
-
-          document.getElementById('usd1-to-krw').textContent = `${usd1ToKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
-          document.getElementById('krw1000-to-usd').textContent = `${krw1000ToUsd.toFixed(4)} 달러`;
+          state.status = 'fresh';
+          state.error_code = 'none';
+          state.last_known_rate = rawData.rates.KRW;
+          state.last_known_source_time = new Date(rawData.time_last_update_unix * 1000);
           
-          document.getElementById('source-time').textContent = formatKST(sourceTime);
-          document.getElementById('fetch-time').textContent = formatKST(fetchTime);
+          // 일별 기록 저장 (Asia/Seoul 기준 날짜 중복 방지 원자적 갱신)
+          const todayKST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+          const existingIdx = state.daily_records.findIndex(r => r.record_date === todayKST);
+          if (existingIdx >= 0) {
+            state.daily_records[existingIdx].normalized_value = state.last_known_rate;
+          } else {
+            state.daily_records.push({ record_date: todayKST, normalized_value: state.last_known_rate });
+          }
 
-          // 2. 입력 계산기 초기화
-          calculate();
+          renderUI(fetchTime);
         }
-      } catch (error) {
-        console.error('환율 데이터 로드 실패:', error);
+      } catch (err) {
+        simulateFailure('offline');
       }
     }
 
-    // 페이지 진입 시 최초 실행
+    // 카드 3: 외부 실패 5종 합성 시뮬레이션
+    function simulateFailure(errorCode) {
+      state.status = 'stale';
+      state.error_code = errorCode;
+
+      const errorMessages = {
+        timeout: { title: "T04-TIMEOUT: 응답 지연 발생", action: "네트워크 응답이 느립니다. 잠시 후 [다시 시도]를 눌러주세요." },
+        auth_401: { title: "T04-AUTH-401: 외부 원천 거절", action: "외부 원천 접근 권한 오류입니다. 데이터 제공처 설정을 확인하세요." },
+        rate_429: { title: "T04-RATE-429: 호출 제한 초과", action: "요청이 너무 많아 차단되었습니다. 1분 후 다시 시도해 주세요." },
+        offline: { title: "T04-OFFLINE: 네트워크 연결 없음", action: "오프라인 상태입니다. 인터넷 연결을 확인해 주세요." },
+        schema_break: { title: "T04-SCHEMA-BREAK: 응답 형식이 바뀜", action: "응답 규격이 올바르지 않습니다. 시스템 업데이트가 필요합니다." }
+      };
+
+      const info = errorMessages[errorCode] || { title: "오류 발생", action: "다시 시도해주세요." };
+      document.getElementById('error-title').textContent = info.title;
+      document.getElementById('error-action').textContent = info.action;
+
+      renderUI(new Date());
+    }
+
+    // 카드 3: T04-RECOVER-D2 복구 재생
+    function recoverD2() {
+      state.status = 'fresh';
+      state.error_code = 'none';
+      state.last_known_rate = 120; // T04-RECOVER-D2 합성값
+      state.last_known_source_time = new Date("2026-08-25T00:00:00+09:00");
+
+      // 합성 다음 날짜 행 추가 (2026-08-25)
+      const recoverDate = "2026-08-25";
+      const existingIdx = state.daily_records.findIndex(r => r.record_date === recoverDate);
+      if (existingIdx >= 0) {
+        state.daily_records[existingIdx].normalized_value = 120;
+      } else {
+        state.daily_records.push({ record_date: recoverDate, normalized_value: 120 });
+      }
+
+      renderUI(new Date());
+    }
+
+    // 초기 실행
     fetchExchangeRate();
   </script>
 </body>
