@@ -108,7 +108,7 @@
     .meta-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
     .meta-label { color: #868e96; }
 
-    /* 카드 3/4 테스트 컨트롤러 */
+    /* 장애 시뮬레이션 버튼 */
     .fixture-tester {
       margin-top: 24px;
       padding-top: 16px;
@@ -118,8 +118,6 @@
     .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
     .btn-fixture { background: #f1f3f5; color: #495057; border: 1px solid #ced4da; font-size: 0.78rem; padding: 6px 10px; }
     .btn-fixture:hover { background: #e9ecef; }
-    .btn-recover { background: #40c057; color: white; border: none; }
-    .btn-recover:hover { background: #37b24d; }
   </style>
 </head>
 <body>
@@ -134,7 +132,7 @@
     <div id="error-box" class="error-box">
       <div id="error-title" class="error-title">오류 메시지</div>
       <div id="error-action" class="error-action">다음 행동 안내</div>
-      <button onclick="recoverD2()" style="margin-top: 8px; font-size: 0.8rem; padding: 4px 8px;">🔄 다시 시도</button>
+      <button onclick="fetchExchangeRate()" style="margin-top: 8px; font-size: 0.8rem; padding: 4px 8px;">🔄 다시 시도</button>
     </div>
 
     <!-- 환율 요약 -->
@@ -162,7 +160,7 @@
       <div class="calc-result" id="calc-output">계산 중...</div>
     </div>
 
-    <!-- 카드 5: 일별 저장 기록 및 어제 대비 변화 표 -->
+    <!-- 카드 5: 일별 기록 및 어제 대비 변화 표 -->
     <div class="history-section">
       <div class="section-title">📊 일별 환율 기록 및 어제 대비 변화 (KST)</div>
       <table>
@@ -189,29 +187,43 @@
       <div class="meta-item"><span class="meta-label">기준 시간대</span><span id="timezone">KST (Asia/Seoul, UTC+9)</span></div>
     </div>
 
-    <!-- 합성 시뮬레이션 버튼 컨트롤러 -->
+    <!-- 카드 3 장애 시뮬레이션 버튼 -->
     <div class="fixture-tester">
-      <div class="fixture-title">🧪 합성 장애 및 날짜 시뮬레이션</div>
+      <div class="fixture-title">🧪 카드 3 장애 수집 시뮬레이션</div>
       <div class="btn-group">
         <button class="btn-fixture" onclick="simulateFailure('timeout')">1. TIMEOUT</button>
         <button class="btn-fixture" onclick="simulateFailure('auth_401')">2. AUTH-401</button>
         <button class="btn-fixture" onclick="simulateFailure('rate_429')">3. RATE-429</button>
         <button class="btn-fixture" onclick="simulateFailure('offline')">4. OFFLINE</button>
         <button class="btn-fixture" onclick="simulateFailure('schema_break')">5. SCHEMA-BREAK</button>
-        <button class="btn-fixture btn-recover" onclick="recoverD2()">6. RECOVER-D2 (2일차 복구)</button>
-        <button class="btn-fixture" onclick="injectCard5MockData()" style="background:#e7f5ff; border-color:#74c0fc; color:#1864ab;">7. 카드 5 이틀 기록 시험</button>
       </div>
     </div>
   </div>
 
   <script>
-    // 상태 관리 (Last Known Good + Daily History)
+    // 브라우저 localStorage에서 기존 기록 로드 (없으면 빈 배열)
+    function loadSavedRecords() {
+      try {
+        const saved = localStorage.getItem('aleph_t04_daily_records');
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    // 브라우저 localStorage에 일별 기록 저장
+    function saveRecords(records) {
+      try {
+        localStorage.setItem('aleph_t04_daily_records', JSON.stringify(records));
+      } catch (e) {}
+    }
+
     let state = {
       status: 'fresh',
       error_code: 'none',
       last_known_rate: null,
       last_known_source_time: null,
-      daily_records: [] // { record_date: 'YYYY-MM-DD', normalized_value: 1340.50 }
+      daily_records: loadSavedRecords()
     };
 
     function formatKST(date) {
@@ -234,13 +246,12 @@
       }
     }
 
-    // 카드 5: 어제 대비 변화 계산 및 테이블 렌더링
     function renderHistoryTable() {
       const tbody = document.getElementById('history-table-body');
       tbody.innerHTML = '';
 
       if (state.daily_records.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4">저장된 일별 기록이 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4">저장된 일별 기록이 없습니다. (첫 수집 진행 중)</td></tr>';
         return;
       }
 
@@ -266,7 +277,7 @@
             diffClass = 'up';
           } else if (diff < 0) {
             diffText = `▼ ${diff.toFixed(2)} 원`;
-            rateText = `${diffRate.toFixed(2)}%`;
+            rateText = `${diff.toFixed(2)} 원`;
             diffClass = 'down';
           } else {
             diffText = '0.00 원';
@@ -322,14 +333,19 @@
           state.last_known_rate = rawData.rates.KRW;
           state.last_known_source_time = new Date(rawData.time_last_update_unix * 1000);
           
-          // KST 기준 원자적 일별 중복 방지 저장
+          // KST 기준 날짜 생성 (YYYY-MM-DD)
           const todayKST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
           const existingIdx = state.daily_records.findIndex(r => r.record_date === todayKST);
+          
+          // 동일 날짜 재실행 시 덮어쓰기(원자적 갱신), 신규 날짜 등장 시 새 행 추가
           if (existingIdx >= 0) {
             state.daily_records[existingIdx].normalized_value = state.last_known_rate;
           } else {
             state.daily_records.push({ record_date: todayKST, normalized_value: state.last_known_rate });
           }
+
+          // 영구 저장소(localStorage)에 보존
+          saveRecords(state.daily_records);
 
           renderUI(fetchTime);
         }
@@ -357,39 +373,7 @@
       renderUI(new Date());
     }
 
-    function recoverD2() {
-      state.status = 'fresh';
-      state.error_code = 'none';
-      state.last_known_rate = 1345.50;
-      state.last_known_source_time = new Date("2026-09-18T13:00:00+09:00");
-
-      const recoverDate = "2026-09-18";
-      const existingIdx = state.daily_records.findIndex(r => r.record_date === recoverDate);
-      if (existingIdx >= 0) {
-        state.daily_records[existingIdx].normalized_value = 1345.50;
-      } else {
-        state.daily_records.push({ record_date: recoverDate, normalized_value: 1345.50 });
-      }
-
-      renderUI(new Date());
-    }
-
-    // 카드 5: 2026-09-17 및 2026-09-18 이틀 기록 시뮬레이션 버튼
-    function injectCard5MockData() {
-      state.status = 'fresh';
-      state.error_code = 'none';
-      state.last_known_rate = 1345.50;
-      state.last_known_source_time = new Date("2026-09-18T13:00:00+09:00");
-
-      state.daily_records = [
-        { record_date: "2026-09-17", normalized_value: 1340.50 },
-        { record_date: "2026-09-18", normalized_value: 1345.50 }
-      ];
-
-      renderUI(new Date());
-    }
-
-    // 초기화 및 실시간 수집 실행
+    // 접속 시 자동 실행
     fetchExchangeRate();
   </script>
 </body>
