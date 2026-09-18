@@ -82,7 +82,7 @@
     button:hover { background: #1c7ed6; }
     .calc-result { font-weight: bold; font-size: 1.1rem; color: #15aabf; margin-top: 8px; }
 
-    /* 카드 5: 일별 기록 및 어제 대비 변화 테이블 */
+    /* 카드 5: 최신 1개 행 환율 기록 및 어제 대비 변화 테이블 */
     .history-section {
       margin-top: 24px;
       border-top: 1px solid #eee;
@@ -160,7 +160,7 @@
       <div class="calc-result" id="calc-output">계산 중...</div>
     </div>
 
-    <!-- 카드 5: 일별 기록 및 어제 대비 변화 표 -->
+    <!-- 카드 5: 최신 1개 행 표시 환율 기록 테이블 -->
     <div class="history-section">
       <div class="section-title">📊 일별 환율 기록 및 어제 대비 변화 (KST)</div>
       <table>
@@ -201,7 +201,6 @@
   </div>
 
   <script>
-    // 브라우저 localStorage에서 기존 기록 로드 (없으면 빈 배열)
     function loadSavedRecords() {
       try {
         const saved = localStorage.getItem('aleph_t04_daily_records');
@@ -211,7 +210,6 @@
       }
     }
 
-    // 브라우저 localStorage에 일별 기록 저장
     function saveRecords(records) {
       try {
         localStorage.setItem('aleph_t04_daily_records', JSON.stringify(records));
@@ -246,54 +244,57 @@
       }
     }
 
+    // 항상 최신 1개 행만 렌더링하는 함수
     function renderHistoryTable() {
       const tbody = document.getElementById('history-table-body');
       tbody.innerHTML = '';
 
       if (state.daily_records.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4">저장된 일별 기록이 없습니다. (첫 수집 진행 중)</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4">저장된 일별 기록이 없습니다.</td></tr>';
         return;
       }
 
-      // 날짜순 오름차순 정렬
+      // 날짜 오름차순 정렬
       const sortedRecords = [...state.daily_records].sort((a, b) => a.record_date.localeCompare(b.record_date));
+      
+      // 가장 최근(마지막) 기록 1개만 추출
+      const latestRecord = sortedRecords[sortedRecords.length - 1];
+      const latestIndex = sortedRecords.length - 1;
 
-      sortedRecords.forEach((record, index) => {
-        const tr = document.createElement('tr');
-        
-        let diffText = '-';
-        let rateText = '-';
-        let diffClass = 'same';
+      let diffText = '-';
+      let rateText = '-';
+      let diffClass = 'same';
 
-        if (index > 0) {
-          const prevValue = sortedRecords[index - 1].normalized_value;
-          const currValue = record.normalized_value;
-          const diff = currValue - prevValue;
-          const diffRate = (diff / prevValue) * 100;
+      // 이전 날짜 기록이 존재할 경우에만 변화량 계산
+      if (latestIndex > 0) {
+        const prevValue = sortedRecords[latestIndex - 1].normalized_value;
+        const currValue = latestRecord.normalized_value;
+        const diff = currValue - prevValue;
+        const diffRate = (diff / prevValue) * 100;
 
-          if (diff > 0) {
-            diffText = `▲ +${diff.toFixed(2)} 원`;
-            rateText = `+${diffRate.toFixed(2)}%`;
-            diffClass = 'up';
-          } else if (diff < 0) {
-            diffText = `▼ ${diff.toFixed(2)} 원`;
-            rateText = `${diff.toFixed(2)} 원`;
-            diffClass = 'down';
-          } else {
-            diffText = '0.00 원';
-            rateText = '0.00%';
-            diffClass = 'same';
-          }
+        if (diff > 0) {
+          diffText = `▲ +${diff.toFixed(2)} 원`;
+          rateText = `+${diffRate.toFixed(2)}%`;
+          diffClass = 'up';
+        } else if (diff < 0) {
+          diffText = `▼ ${diff.toFixed(2)} 원`;
+          rateText = `${diffRate.toFixed(2)}%`;
+          diffClass = 'down';
+        } else {
+          diffText = '0.00 원';
+          rateText = '0.00%';
+          diffClass = 'same';
         }
+      }
 
-        tr.innerHTML = `
-          <td>${record.record_date}</td>
-          <td>${record.normalized_value.toLocaleString('ko-KR', { minimumFractionDigits: 2 })} 원</td>
-          <td class="${diffClass}">${diffText}</td>
-          <td class="${diffClass}">${rateText}</td>
-        `;
-        tbody.appendChild(tr);
-      });
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${latestRecord.record_date}</td>
+        <td>${latestRecord.normalized_value.toLocaleString('ko-KR', { minimumFractionDigits: 2 })} 원</td>
+        <td class="${diffClass}">${diffText}</td>
+        <td class="${diffClass}">${rateText}</td>
+      `;
+      tbody.appendChild(tr);
     }
 
     function renderUI(fetchTime) {
@@ -333,20 +334,16 @@
           state.last_known_rate = rawData.rates.KRW;
           state.last_known_source_time = new Date(rawData.time_last_update_unix * 1000);
           
-          // KST 기준 날짜 생성 (YYYY-MM-DD)
           const todayKST = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
           const existingIdx = state.daily_records.findIndex(r => r.record_date === todayKST);
           
-          // 동일 날짜 재실행 시 덮어쓰기(원자적 갱신), 신규 날짜 등장 시 새 행 추가
           if (existingIdx >= 0) {
             state.daily_records[existingIdx].normalized_value = state.last_known_rate;
           } else {
             state.daily_records.push({ record_date: todayKST, normalized_value: state.last_known_rate });
           }
 
-          // 영구 저장소(localStorage)에 보존
           saveRecords(state.daily_records);
-
           renderUI(fetchTime);
         }
       } catch (err) {
@@ -373,7 +370,6 @@
       renderUI(new Date());
     }
 
-    // 접속 시 자동 실행
     fetchExchangeRate();
   </script>
 </body>
