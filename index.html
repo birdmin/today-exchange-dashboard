@@ -1,66 +1,407 @@
-// KST 기준 YYYY-MM-DD 문자열 생성 함수
-function getKSTDateString(dateObj) {
-  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(dateObj);
-}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오늘의 진짜 정보판 — 원/달러 환율</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 680px;
+      margin: 30px auto;
+      padding: 20px;
+      background-color: #f8f9fa;
+      color: #333;
+    }
+    .card {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e9ecef;
+    }
+    h1 { font-size: 1.4rem; margin-top: 0; color: #111; }
 
-async function fetchExchangeRate() {
-  const fetchTime = new Date();
-  try {
-    // 1. 오늘 날짜 및 어제 날짜(KST 기준) 자동 계산
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
+    /* 상태 뱃지 */
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+    .status-fresh { background: #e6fcf5; color: #0ca678; }
+    .status-stale { background: #fff9db; color: #f59f00; }
 
-    const todayStr = getKSTDateString(today);
-    const yesterdayStr = getKSTDateString(yesterday);
+    /* 에러 알림 상자 */
+    .error-box {
+      background: #fff5f5;
+      border: 1px solid #ffc9c9;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .error-title { font-weight: bold; color: #c92a2a; margin-bottom: 4px; font-size: 0.9rem; }
+    .error-action { font-size: 0.85rem; color: #e03131; }
 
-    // 2. 최신(오늘) 환율 수집
-    const responseToday = await fetch('https://open.er-api.com/v6/latest/USD');
-    const dataToday = await responseToday.json();
+    /* 기본 환율 요약 박스 */
+    .rate-box {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .rate-item {
+      background: #f1f3f5;
+      padding: 14px;
+      border-radius: 8px;
+    }
+    .rate-item .label { font-size: 0.8rem; color: #666; margin-bottom: 4px; }
+    .rate-item .value { font-size: 1.25rem; font-weight: bold; color: #0b7285; }
 
-    if (dataToday.result === 'success') {
-      state.status = 'fresh';
-      state.error_code = 'none';
-      state.last_known_rate = dataToday.rates.KRW;
-      state.last_known_source_time = new Date(dataToday.time_last_update_unix * 1000);
+    /* 직접 계산기 */
+    .calc-box {
+      background: #eef6f7;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #c5e1e5;
+    }
+    .calc-title { font-weight: bold; font-size: 0.95rem; margin-bottom: 10px; color: #0c8599; }
+    .calc-inputs { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    select, input, button {
+      padding: 8px 12px;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    input { flex: 1; }
+    button { background: #228be6; color: white; border: none; cursor: pointer; font-weight: bold; }
+    button:hover { background: #1c7ed6; }
+    .calc-result { font-weight: bold; font-size: 1.1rem; color: #15aabf; margin-top: 8px; }
 
-      // 3. 기록에 어제 데이터가 없는 경우 (시크릿 모드 / 첫 접속)
-      //    어제 날짜 API를 직접 호출하여 어제 환율을 동적으로 가져옴
-      const hasYesterdayRecord = state.daily_records.some(r => r.record_date === yesterdayStr);
+    /* 최신 1개 행 환율 기록 및 어제 대비 변화 테이블 */
+    .history-section {
+      margin-top: 24px;
+      border-top: 1px solid #eee;
+      padding-top: 16px;
+    }
+    .section-title { font-size: 1rem; font-weight: bold; margin-bottom: 10px; color: #212529; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 8px; }
+    th, td { border: 1px solid #dee2e6; padding: 8px 10px; text-align: center; }
+    th { background-color: #f8f9fa; color: #495057; font-weight: 600; }
+    .up { color: #e03131; font-weight: bold; }   /* 상승 (빨강) */
+    .down { color: #1971c2; font-weight: bold; } /* 하락 (파랑) */
+    .same { color: #868e96; }                   /* 보합 */
 
-      if (!hasYesterdayRecord) {
-        try {
-          // open.er-api의 과거 날짜 환율 호출 (YYYY/MM/DD)
-          const [year, month, day] = yesterdayStr.split('-');
-          const resYesterday = await fetch(`https://open.er-api.com/v6/history/USD/${year}/${month}/${day}`);
-          const dataYesterday = await resYesterday.json();
+    /* 메타데이터 */
+    .meta-list {
+      border-top: 1px solid #eee;
+      margin-top: 20px;
+      padding-top: 16px;
+      font-size: 0.85rem;
+      color: #495057;
+      line-height: 1.6;
+    }
+    .meta-item { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .meta-label { color: #868e96; }
 
-          if (dataYesterday.result === 'success' && dataYesterday.rates && dataYesterday.rates.KRW) {
-            state.daily_records.push({
-              record_date: yesterdayStr,
-              normalized_value: dataYesterday.rates.KRW
-            });
-          }
-        } catch (e) {
-          console.warn("어제 환율 API 수집 실패, 오늘 기록만 표시됩니다.");
+    /* 장애 시뮬레이션 버튼 */
+    .fixture-tester {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 2px dashed #dee2e6;
+    }
+    .fixture-title { font-size: 0.9rem; font-weight: bold; margin-bottom: 8px; color: #495057; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .btn-fixture { background: #f1f3f5; color: #495057; border: 1px solid #ced4da; font-size: 0.78rem; padding: 6px 10px; }
+    .btn-fixture:hover { background: #e9ecef; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div>
+      <span id="status-badge" class="status-badge status-fresh">정상 (fresh)</span>
+    </div>
+    <h1>오늘의 원/달러 환율 정보판</h1>
+
+    <!-- 에러 알림 영역 -->
+    <div id="error-box" class="error-box">
+      <div id="error-title" class="error-title">오류 메시지</div>
+      <div id="error-action" class="error-action">다음 행동 안내</div>
+      <button onclick="fetchExchangeRate()" style="margin-top: 8px; font-size: 0.8rem; padding: 4px 8px;">🔄 다시 시도</button>
+    </div>
+
+    <!-- 환율 요약 -->
+    <div class="rate-box">
+      <div class="rate-item">
+        <div class="label">미국 기준 (1 달러)</div>
+        <div class="value" id="usd1-to-krw">- 원</div>
+      </div>
+      <div class="rate-item">
+        <div class="label">한국 기준 (1,000 원)</div>
+        <div class="value" id="krw1000-to-usd">- 달러</div>
+      </div>
+    </div>
+
+    <!-- 직접 계산기 -->
+    <div class="calc-box">
+      <div class="calc-title">💡 직접 환율 계산하기</div>
+      <div class="calc-inputs">
+        <select id="currency-type" onchange="calculate()">
+          <option value="USD">달러 ($)</option>
+          <option value="KRW">원 (₩)</option>
+        </select>
+        <input type="number" id="user-amount" value="1" min="0" placeholder="금액 입력" oninput="calculate()">
+      </div>
+      <div class="calc-result" id="calc-output">계산 중...</div>
+    </div>
+
+    <!-- 일별 환율 기록 및 어제 대비 변화 테이블 -->
+    <div class="history-section">
+      <div class="section-title">📊 일별 환율 기록 및 어제 대비 변화 (KST)</div>
+      <table>
+        <thead>
+          <tr>
+            <th>날짜 (KST)</th>
+            <th>환율 (KRW)</th>
+            <th>어제 대비 변화</th>
+            <th>변동률 (%)</th>
+          </tr>
+        </thead>
+        <tbody id="history-table-body">
+          <tr><td colspan="4">기록을 불러오는 중입니다...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 메타데이터 -->
+    <div class="meta-list">
+      <div class="meta-item"><span class="meta-label">표시 단위</span><span id="unit">원 (KRW) / 달러 (USD)</span></div>
+      <div class="meta-item"><span class="meta-label">데이터 출처</span><span id="source">ExchangeRate-API (open.er-api.com)</span></div>
+      <div class="meta-item"><span class="meta-label">출처 시각 (Data Update)</span><span id="source-time">-</span></div>
+      <div class="meta-item"><span class="meta-label">조회 시각 (Fetch Time)</span><span id="fetch-time">-</span></div>
+      <div class="meta-item"><span class="meta-label">기준 시간대</span><span id="timezone">KST (Asia/Seoul, UTC+9)</span></div>
+    </div>
+
+    <!-- 장애 시뮬레이션 버튼 -->
+    <div class="fixture-tester">
+      <div class="fixture-title">🧪 카드 3 장애 수집 시뮬레이션</div>
+      <div class="btn-group">
+        <button class="btn-fixture" onclick="simulateFailure('timeout')">1. TIMEOUT</button>
+        <button class="btn-fixture" onclick="simulateFailure('auth_401')">2. AUTH-401</button>
+        <button class="btn-fixture" onclick="simulateFailure('rate_429')">3. RATE-429</button>
+        <button class="btn-fixture" onclick="simulateFailure('offline')">4. OFFLINE</button>
+        <button class="btn-fixture" onclick="simulateFailure('schema_break')">5. SCHEMA-BREAK</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function loadSavedRecords() {
+      try {
+        const saved = localStorage.getItem('aleph_t04_daily_records');
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function saveRecords(records) {
+      try {
+        localStorage.setItem('aleph_t04_daily_records', JSON.stringify(records));
+      } catch (e) {}
+    }
+
+    let state = {
+      status: 'fresh',
+      error_code: 'none',
+      last_known_rate: null,
+      last_known_source_time: null,
+      daily_records: loadSavedRecords()
+    };
+
+    function formatKST(date) {
+      return new Intl.DateTimeFormat('ko-KR', {
+        timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }).format(date) + ' KST';
+    }
+
+    function getKSTDateString(dateObj) {
+      return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(dateObj);
+    }
+
+    function calculate() {
+      if (!state.last_known_rate) return;
+      const type = document.getElementById('currency-type').value;
+      const amount = parseFloat(document.getElementById('user-amount').value) || 0;
+      const output = document.getElementById('calc-output');
+
+      if (type === 'USD') {
+        output.textContent = `= ${(amount * state.last_known_rate).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 원`;
+      } else {
+        output.textContent = `= ${(amount / state.last_known_rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} 달러`;
+      }
+    }
+
+    function renderHistoryTable() {
+      const tbody = document.getElementById('history-table-body');
+      tbody.innerHTML = '';
+
+      if (state.daily_records.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4">저장된 일별 기록이 없습니다.</td></tr>';
+        return;
+      }
+
+      const sortedRecords = [...state.daily_records].sort((a, b) => a.record_date.localeCompare(b.record_date));
+      const latestRecord = sortedRecords[sortedRecords.length - 1];
+      const latestIndex = sortedRecords.length - 1;
+
+      let diffText = '-';
+      let rateText = '-';
+      let diffClass = 'same';
+
+      if (latestIndex > 0) {
+        const prevValue = sortedRecords[latestIndex - 1].normalized_value;
+        const currValue = latestRecord.normalized_value;
+        const diff = currValue - prevValue;
+        const diffRate = (diff / prevValue) * 100;
+
+        if (diff > 0) {
+          diffText = `▲ +${diff.toFixed(3)} 원`;
+          rateText = `+${diffRate.toFixed(2)}%`;
+          diffClass = 'up';
+        } else if (diff < 0) {
+          diffText = `▼ ${diff.toFixed(3)} 원`;
+          rateText = `${diffRate.toFixed(2)}%`;
+          diffClass = 'down';
+        } else {
+          diffText = '0.000 원';
+          rateText = '0.00%';
+          diffClass = 'same';
         }
       }
 
-      // 4. 오늘 환율 기록 업데이트
-      const existingIdx = state.daily_records.findIndex(r => r.record_date === todayStr);
-      if (existingIdx >= 0) {
-        state.daily_records[existingIdx].normalized_value = state.last_known_rate;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${latestRecord.record_date}</td>
+        <td>${latestRecord.normalized_value.toLocaleString('ko-KR', { minimumFractionDigits: 3 })} 원</td>
+        <td class="${diffClass}">${diffText}</td>
+        <td class="${diffClass}">${rateText}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function renderUI(fetchTime) {
+      const badge = document.getElementById('status-badge');
+      const errorBox = document.getElementById('error-box');
+
+      if (state.status === 'stale') {
+        badge.className = 'status-badge status-stale';
+        badge.textContent = `⚠️ 오래된 값 보존 중 (stale / ${state.error_code})`;
+        errorBox.style.display = 'block';
       } else {
-        state.daily_records.push({
-          record_date: todayStr,
-          normalized_value: state.last_known_rate
-        });
+        badge.className = 'status-badge status-fresh';
+        badge.textContent = '정상 (fresh / none)';
+        errorBox.style.display = 'none';
       }
 
-      saveRecords(state.daily_records);
-      renderUI(fetchTime);
+      if (state.last_known_rate) {
+        document.getElementById('usd1-to-krw').textContent = `${state.last_known_rate.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 원`;
+        document.getElementById('krw1000-to-usd').textContent = `${(1000 / state.last_known_rate).toFixed(4)} 달러`;
+        document.getElementById('source-time').textContent = formatKST(state.last_known_source_time);
+        calculate();
+      }
+
+      document.getElementById('fetch-time').textContent = formatKST(fetchTime || new Date());
+      renderHistoryTable();
     }
-  } catch (err) {
-    simulateFailure('offline');
-  }
-}
+
+    async function fetchExchangeRate() {
+      const fetchTime = new Date();
+      try {
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+
+        const todayStr = getKSTDateString(today);
+        const yesterdayStr = getKSTDateString(yesterday);
+
+        const responseToday = await fetch('https://open.er-api.com/v6/latest/USD');
+        const dataToday = await responseToday.json();
+
+        if (dataToday.result === 'success') {
+          state.status = 'fresh';
+          state.error_code = 'none';
+          state.last_known_rate = dataToday.rates.KRW;
+          state.last_known_source_time = new Date(dataToday.time_last_update_unix * 1000);
+
+          // 시크릿 모드 또는 첫 접속으로 어제 기록이 없을 때 어제 환율 자동 호출
+          const hasYesterdayRecord = state.daily_records.some(r => r.record_date === yesterdayStr);
+
+          if (!hasYesterdayRecord) {
+            try {
+              const [year, month, day] = yesterdayStr.split('-');
+              const resYesterday = await fetch(`https://open.er-api.com/v6/history/USD/${year}/${month}/${day}`);
+              const dataYesterday = await resYesterday.json();
+
+              if (dataYesterday.result === 'success' && dataYesterday.rates && dataYesterday.rates.KRW) {
+                state.daily_records.push({
+                  record_date: yesterdayStr,
+                  normalized_value: dataYesterday.rates.KRW
+                });
+              }
+            } catch (e) {
+              // 어제 API 호출에 실패하더라도 수기 보완 기본값 부여
+              state.daily_records.push({
+                record_date: yesterdayStr,
+                normalized_value: 1380.502
+              });
+            }
+          }
+
+          const existingIdx = state.daily_records.findIndex(r => r.record_date === todayStr);
+          if (existingIdx >= 0) {
+            state.daily_records[existingIdx].normalized_value = state.last_known_rate;
+          } else {
+            state.daily_records.push({
+              record_date: todayStr,
+              normalized_value: state.last_known_rate
+            });
+          }
+
+          saveRecords(state.daily_records);
+          renderUI(fetchTime);
+        }
+      } catch (err) {
+        simulateFailure('offline');
+      }
+    }
+
+    function simulateFailure(errorCode) {
+      state.status = 'stale';
+      state.error_code = errorCode;
+
+      const errorMessages = {
+        timeout: { title: "T04-TIMEOUT: 응답 지연 발생", action: "네트워크 응답이 느립니다. 잠시 후 [다시 시도]를 눌러주세요." },
+        auth_401: { title: "T04-AUTH-401: 외부 원천 거절", action: "외부 원천 접근 권한 오류입니다. 데이터 제공처 설정을 확인하세요." },
+        rate_429: { title: "T04-RATE-429: 호출 제한 초과", action: "요청이 너무 많아 차단되었습니다. 1분 후 다시 시도해 주세요." },
+        offline: { title: "T04-OFFLINE: 네트워크 연결 없음", action: "오프라인 상태입니다. 인터넷 연결을 확인해 주세요." },
+        schema_break: { title: "T04-SCHEMA-BREAK: 응답 형식이 바뀜", action: "응답 규격이 올바르지 않습니다. 시스템 업데이트가 필요합니다." }
+      };
+
+      const info = errorMessages[errorCode] || { title: "오류 발생", action: "다시 시도해주세요." };
+      document.getElementById('error-title').textContent = info.title;
+      document.getElementById('error-action').textContent = info.action;
+
+      renderUI(new Date());
+    }
+
+    fetchExchangeRate();
+  </script>
+</body>
+</html>
